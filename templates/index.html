@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Microgravity Simulation | MAE 577</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            color: white;
+            font-family: 'Inter', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+        }
+
+        .neo-button {
+            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .neo-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 255, 255, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui-layer" class="fixed inset-0 pointer-events-none z-10 p-8 flex flex-col justify-between">
+        <!-- Header -->
+        <div class="flex justify-between items-start pointer-events-auto">
+            <div class="glass p-6">
+                <h1 class="text-2xl font-bold tracking-tight text-cyan-400">3D Microgravity Sim</h1>
+                <p class="text-xs uppercase tracking-widest text-gray-400">MAE 577 | Multi-Robot Systems</p>
+            </div>
+            <div class="glass p-6">
+                <div class="flex gap-4">
+                    <div class="text-center">
+                        <p class="text-[10px] uppercase text-gray-500">Agents</p>
+                        <p id="agent-count" class="text-xl font-mono">0</p>
+                    </div>
+                    <div class="w-px h-8 bg-white/10"></div>
+                    <div class="text-center">
+                        <p class="text-[10px] uppercase text-gray-500">Avg Vel</p>
+                        <p id="avg-vel" class="text-xl font-mono text-cyan-400">0.00</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col items-center gap-4 pointer-events-auto">
+            <div class="glass p-4 flex flex-col gap-4">
+                <!-- Simulation Controls -->
+                <div class="flex gap-4 items-center">
+                    <button id="toggle-sim" class="neo-button px-6 py-2 rounded-full font-bold text-sm uppercase">Start
+                        Simulation</button>
+                    <div class="w-px h-6 bg-white/10"></div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">Air Density (ρ)</label>
+                            <span id="rho-val" class="text-[10px] font-mono text-cyan-400">0.05 kg/m³</span>
+                        </div>
+                        <input id="rho-slider" type="range" min="0" max="2" step="0.01" value="0.05"
+                            class="accent-cyan-500">
+                    </div>
+                    <button id="reset-sim"
+                        class="neo-button px-4 py-2 rounded-full text-xs opacity-60 hover:opacity-100">Reset</button>
+                </div>
+
+                <!-- Velocity Controls -->
+                <div class="flex gap-6 items-center border-t border-white/5 pt-4">
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-cyan-400 font-bold">Target Vx</label>
+                            <span id="vx-val" class="text-[10px] font-mono ml-2">0.0 m/s</span>
+                        </div>
+                        <input id="vx-slider" type="range" min="-10" max="10" step="0.1" value="0"
+                            class="accent-cyan-500 w-24">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-cyan-400 font-bold">Target Vy</label>
+                            <span id="vy-val" class="text-[10px] font-mono ml-2">0.0 m/s</span>
+                        </div>
+                        <input id="vy-slider" type="range" min="-10" max="10" step="0.1" value="0"
+                            class="accent-cyan-500 w-24">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-cyan-400 font-bold">Target Vz</label>
+                            <span id="vz-val" class="text-[10px] font-mono ml-2">0.0 m/s</span>
+                        </div>
+                        <input id="vz-slider" type="range" min="-10" max="10" step="0.1" value="0"
+                            class="accent-cyan-500 w-24">
+                    </div>
+
+                    <div class="w-px h-10 bg-white/10"></div>
+
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-orange-400 font-bold">Duration</label>
+                            <span id="duration-val" class="text-[10px] font-mono ml-2">2.0s</span>
+                        </div>
+                        <input id="duration-slider" type="range" min="0.1" max="10" step="0.1" value="2.0"
+                            class="accent-orange-500 w-24">
+                    </div>
+
+                    <button id="apply-command"
+                        class="bg-cyan-500 hover:bg-cyan-400 text-black px-6 py-2 rounded-full font-bold text-xs uppercase transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(6,182,212,0.4)]">Apply
+                        Command</button>
+
+                    <button id="zero-vel" class="neo-button px-3 py-1 rounded text-[10px] uppercase">Halt</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration ---
+        const CONFIG = {
+            numAgents: 30,
+            boxSize: 40,
+            agentRadius: 0.5,
+            rho: 0.05,     // Reduced from 1.225 for better drifting
+            Cd: 0.47,
+            A: Math.PI * 0.5 * 0.5,
+            mass: 1.0,     // Increased from 0.1 for more momentum
+            maxThrust: 10,
+            gain: 2,
+            targetVel: new THREE.Vector3(0, 0, 0),
+            duration: 2.0,
+            restitution: 1.0,
+            microgravity: new THREE.Vector3(0, 0, -0.005) // Z is now Down/Up
+        };
+
+        let agents = [];
+
+        // --- Three.js Setup ---
+        THREE.Object3D.DefaultUp.set(0, 0, 1); // Set Z as Up globally
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        camera.position.set(40, 40, 40);
+        controls.update();
+
+        // --- Lights ---
+        const ambientLight = new THREE.AmbientLight(0x404040, 1);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(10, 10, 50);
+        scene.add(directionalLight);
+
+        // --- Environment ---
+        let boxGeo = new THREE.BoxGeometry(CONFIG.boxSize, CONFIG.boxSize, CONFIG.boxSize);
+        const boxMat = new THREE.MeshPhongMaterial({
+            color: 0x0ea5e9,
+            wireframe: false,
+            transparent: true,
+            opacity: 0.05,
+            side: THREE.BackSide
+        });
+        let box = new THREE.Mesh(boxGeo, boxMat);
+        scene.add(box);
+
+        let boxEdges = new THREE.EdgesGeometry(boxGeo);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.3 });
+        let boxWire = new THREE.LineSegments(boxEdges, lineMat);
+        scene.add(boxWire);
+
+        let grid = new THREE.GridHelper(CONFIG.boxSize, 10, 0x0ea5e9, 0x111111);
+        grid.rotation.x = Math.PI / 2; // Lie flat on XY plane
+        grid.position.z = -CONFIG.boxSize / 2;
+        scene.add(grid);
+
+        function updateEnvironment(size) {
+            // Update visual box
+            box.geometry.dispose();
+            box.geometry = new THREE.BoxGeometry(size, size, size);
+            
+            boxWire.geometry.dispose();
+            boxWire.geometry = new THREE.EdgesGeometry(box.geometry);
+            
+            // Update grid
+            scene.remove(grid);
+            grid = new THREE.GridHelper(size, 10, 0x0ea5e9, 0x111111);
+            grid.rotation.x = Math.PI / 2;
+            grid.position.z = -size / 2;
+            scene.add(grid);
+
+            // Re-adjust camera if needed? (Optional)
+            camera.position.set(size, size, size);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        // --- Agents ---
+        class Agent {
+            constructor() {
+                this.pos = new THREE.Vector3(
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8
+                );
+                this.vel = new THREE.Vector3(0, 0, 0);
+                this.acc = new THREE.Vector3(0, 0, 0);
+                this.commandTimer = 0;
+
+                // Color agents randomly for identification
+                const hue = Math.random();
+                const geo = new THREE.SphereGeometry(CONFIG.agentRadius, 16, 16);
+                const mat = new THREE.MeshPhongMaterial({
+                    color: new THREE.Color().setHSL(hue, 0.8, 0.6),
+                    emissive: new THREE.Color().setHSL(hue, 0.8, 0.3),
+                    emissiveIntensity: 0.5
+                });
+                this.mesh = new THREE.Mesh(geo, mat);
+                this.mesh.position.copy(this.pos);
+                scene.add(this.mesh);
+            }
+
+            update(dt) {
+                // Reset acceleration with microgravity
+                this.acc.copy(CONFIG.microgravity);
+
+                // Velocity Tracking Control (Only if command is active)
+                if (this.commandTimer > 0) {
+                    const error = CONFIG.targetVel.clone().sub(this.vel);
+                    const thrustForce = error.multiplyScalar(CONFIG.gain);
+
+                    if (thrustForce.length() > CONFIG.maxThrust) {
+                        thrustForce.normalize().multiplyScalar(CONFIG.maxThrust);
+                    }
+                    this.acc.add(thrustForce.divideScalar(CONFIG.mass));
+                    this.commandTimer -= dt;
+                }
+
+                // Drag
+                const speed = this.vel.length();
+                if (speed > 0.001) {
+                    const dragMag = 0.5 * CONFIG.rho * speed * speed * CONFIG.Cd * CONFIG.A;
+                    const dragForce = this.vel.clone().normalize().multiplyScalar(-dragMag);
+                    this.acc.add(dragForce.divideScalar(CONFIG.mass));
+                }
+
+                this.vel.add(this.acc.clone().multiplyScalar(dt));
+                this.pos.add(this.vel.clone().multiplyScalar(dt));
+
+                const limit = CONFIG.boxSize / 2 - CONFIG.agentRadius;
+                ['x', 'y', 'z'].forEach(axis => {
+                    if (this.pos[axis] > limit) {
+                        this.pos[axis] = limit;
+                        this.vel[axis] *= -CONFIG.restitution;
+                    } else if (this.pos[axis] < -limit) {
+                        this.pos[axis] = -limit;
+                        this.vel[axis] *= -CONFIG.restitution;
+                    }
+                });
+
+                this.mesh.position.copy(this.pos);
+            }
+
+            reset() {
+                this.pos.set(
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
+                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8
+                );
+                this.vel.set(0, 0, 0);
+                this.commandTimer = 0;
+            }
+        }
+
+        async function initSimulation() {
+            console.log("Initializing simulation...");
+            try {
+                const response = await fetch('/api/config');
+                const serverConfig = await response.json();
+                console.log("Received config from server:", serverConfig);
+
+                // Update configuration from server
+                if (serverConfig.num_agents) CONFIG.numAgents = serverConfig.num_agents;
+                // Update other parameters if they exist in the backend config
+                if (serverConfig.box_size) CONFIG.boxSize = serverConfig.box_size;
+                
+                // Re-initialize box if size changed
+                if (serverConfig.box_size) {
+                    updateEnvironment(CONFIG.boxSize);
+                }
+
+            } catch (error) {
+                console.warn("Could not fetch config from server, using defaults.", error);
+            }
+
+            // Create agents
+            agents = [];
+            for (let i = 0; i < CONFIG.numAgents; i++) {
+                agents.push(new Agent());
+            }
+            document.getElementById('agent-count').innerText = agents.length;
+            
+            // Start the animation loop if it hasn't started
+            if (!animationStarted) {
+                animationStarted = true;
+                animate();
+            }
+        }
+
+        let animationStarted = false;
+
+        // --- Main Loop ---
+        let running = false;
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            if (running) {
+                let totalVel = 0;
+                agents.forEach(a => {
+                    a.update(dt);
+                    totalVel += a.vel.length();
+                });
+                document.getElementById('avg-vel').innerText = (totalVel / agents.length).toFixed(2);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        initSimulation();
+
+        // --- Controls UI ---
+        document.getElementById('toggle-sim').addEventListener('click', (e) => {
+            running = !running;
+            e.target.innerText = running ? 'Stop Simulation' : 'Start Simulation';
+            e.target.classList.toggle('bg-cyan-500/20');
+        });
+
+        document.getElementById('reset-sim').addEventListener('click', () => {
+            agents.forEach(a => a.reset());
+        });
+
+        document.getElementById('rho-slider').addEventListener('input', (e) => {
+            CONFIG.rho = parseFloat(e.target.value);
+            document.getElementById('rho-val').innerText = `${CONFIG.rho.toFixed(2)} kg/m³`;
+        });
+
+        document.getElementById('vx-slider').addEventListener('input', (e) => {
+            CONFIG.targetVel.x = parseFloat(e.target.value);
+            document.getElementById('vx-val').innerText = `${CONFIG.targetVel.x.toFixed(1)} m/s`;
+        });
+        document.getElementById('vy-slider').addEventListener('input', (e) => {
+            CONFIG.targetVel.y = parseFloat(e.target.value);
+            document.getElementById('vy-val').innerText = `${CONFIG.targetVel.y.toFixed(1)} m/s`;
+        });
+        document.getElementById('vz-slider').addEventListener('input', (e) => {
+            CONFIG.targetVel.z = parseFloat(e.target.value);
+            document.getElementById('vz-val').innerText = `${CONFIG.targetVel.z.toFixed(1)} m/s`;
+        });
+        document.getElementById('zero-vel').addEventListener('click', () => {
+            CONFIG.targetVel.set(0, 0, 0);
+            document.getElementById('vx-slider').value = 0;
+            document.getElementById('vy-slider').value = 0;
+            document.getElementById('vz-slider').value = 0;
+            document.getElementById('vx-val').innerText = '0.0 m/s';
+            document.getElementById('vy-val').innerText = '0.0 m/s';
+            document.getElementById('vz-val').innerText = '0.0 m/s';
+            // Also stop any active commands
+            agents.forEach(a => a.commandTimer = 0);
+        });
+
+        document.getElementById('duration-slider').addEventListener('input', (e) => {
+            CONFIG.duration = parseFloat(e.target.value);
+            document.getElementById('duration-val').innerText = `${CONFIG.duration.toFixed(1)}s`;
+        });
+
+        document.getElementById('apply-command').addEventListener('click', () => {
+            agents.forEach(a => {
+                a.commandTimer = CONFIG.duration;
+            });
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>
