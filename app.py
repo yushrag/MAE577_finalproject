@@ -1,7 +1,14 @@
 from flask import Flask, render_template, jsonify, request
 import numpy as np
 
+from simulation import get_default_parameters
+from physics import SimulationEngine
+
 app = Flask(__name__)
+
+# Initialize Simulation Engine
+config = get_default_parameters()
+engine = SimulationEngine(config)
 
 @app.route('/')
 def index():
@@ -9,15 +16,28 @@ def index():
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    # Return initial configuration for the simulation
-    return jsonify({
-        'num_agents': 10,
-        'box_size': 40,
-        'air_density': 1.225, # kg/m^3
-        'drag_coeff': 0.47, # Sphere
-        'agent_mass': 0.1, # kg
-        'thrust_power': 5.0,
-    })
+    return jsonify(config)
+
+@app.route('/api/step', methods=['POST'])
+def step():
+    data = request.json or {}
+    dt = data.get('dt', 0.016)
+    rho = data.get('rho')
+    state = engine.step(dt, rho=rho)
+    return jsonify(state)
+
+@app.route('/api/command', methods=['POST'])
+def command():
+    data = request.json or {}
+    target_vel = data.get('target_vel', [0, 0, 0])
+    duration = data.get('duration', 2.0)
+    engine.apply_command(target_vel, duration)
+    return jsonify({'status': 'command_applied'})
+
+@app.route('/api/reset', methods=['POST'])
+def reset():
+    engine.reset()
+    return jsonify({'status': 'reset_complete'})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

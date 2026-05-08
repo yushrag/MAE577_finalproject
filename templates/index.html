@@ -217,15 +217,10 @@
 
         // --- Agents ---
         class Agent {
-            constructor() {
-                this.pos = new THREE.Vector3(
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8
-                );
+            constructor(id) {
+                this.id = id;
+                this.pos = new THREE.Vector3(0, 0, 0);
                 this.vel = new THREE.Vector3(0, 0, 0);
-                this.acc = new THREE.Vector3(0, 0, 0);
-                this.commandTimer = 0;
 
                 // Color agents randomly for identification
                 const hue = Math.random();
@@ -236,59 +231,13 @@
                     emissiveIntensity: 0.5
                 });
                 this.mesh = new THREE.Mesh(geo, mat);
-                this.mesh.position.copy(this.pos);
                 scene.add(this.mesh);
             }
 
-            update(dt) {
-                // Reset acceleration with microgravity
-                this.acc.copy(CONFIG.microgravity);
-
-                // Velocity Tracking Control (Only if command is active)
-                if (this.commandTimer > 0) {
-                    const error = CONFIG.targetVel.clone().sub(this.vel);
-                    const thrustForce = error.multiplyScalar(CONFIG.gain);
-
-                    if (thrustForce.length() > CONFIG.maxThrust) {
-                        thrustForce.normalize().multiplyScalar(CONFIG.maxThrust);
-                    }
-                    this.acc.add(thrustForce.divideScalar(CONFIG.mass));
-                    this.commandTimer -= dt;
-                }
-
-                // Drag
-                const speed = this.vel.length();
-                if (speed > 0.001) {
-                    const dragMag = 0.5 * CONFIG.rho * speed * speed * CONFIG.Cd * CONFIG.A;
-                    const dragForce = this.vel.clone().normalize().multiplyScalar(-dragMag);
-                    this.acc.add(dragForce.divideScalar(CONFIG.mass));
-                }
-
-                this.vel.add(this.acc.clone().multiplyScalar(dt));
-                this.pos.add(this.vel.clone().multiplyScalar(dt));
-
-                const limit = CONFIG.boxSize / 2 - CONFIG.agentRadius;
-                ['x', 'y', 'z'].forEach(axis => {
-                    if (this.pos[axis] > limit) {
-                        this.pos[axis] = limit;
-                        this.vel[axis] *= -CONFIG.restitution;
-                    } else if (this.pos[axis] < -limit) {
-                        this.pos[axis] = -limit;
-                        this.vel[axis] *= -CONFIG.restitution;
-                    }
-                });
-
+            updateFromState(posArray, velArray) {
+                this.pos.set(posArray[0], posArray[1], posArray[2]);
+                this.vel.set(velArray[0], velArray[1], velArray[2]);
                 this.mesh.position.copy(this.pos);
-            }
-
-            reset() {
-                this.pos.set(
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8,
-                    (Math.random() - 0.5) * CONFIG.boxSize * 0.8
-                );
-                this.vel.set(0, 0, 0);
-                this.commandTimer = 0;
             }
         }
 
@@ -316,7 +265,7 @@
             // Create agents
             agents = [];
             for (let i = 0; i < CONFIG.numAgents; i++) {
-                agents.push(new Agent());
+                agents.push(new Agent(i));
             }
             document.getElementById('agent-count').innerText = agents.length;
             
@@ -324,6 +273,21 @@
             if (!animationStarted) {
                 animationStarted = true;
                 animate();
+            }
+
+            // Fetch initial state once
+            try {
+                const response = await fetch('/api/step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dt: 0 })
+                });
+                const state = await response.json();
+                state.positions.forEach((pos, i) => {
+                    if (agents[i]) agents[i].updateFromState(pos, state.velocities[i]);
+                });
+            } catch (e) {
+                console.error("Failed to fetch initial state:", e);
             }
         }
 
@@ -333,19 +297,31 @@
         let running = false;
         let lastTime = performance.now();
 
-        function animate() {
+        async function animate() {
             requestAnimationFrame(animate);
             const now = performance.now();
             const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
             if (running) {
-                let totalVel = 0;
-                agents.forEach(a => {
-                    a.update(dt);
-                    totalVel += a.vel.length();
-                });
-                document.getElementById('avg-vel').innerText = (totalVel / agents.length).toFixed(2);
+                try {
+                    const response = await fetch('/api/step', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dt: dt, rho: CONFIG.rho })
+                    });
+                    const state = await response.json();
+                    
+                    // Update agents from server state
+                    state.positions.forEach((pos, i) => {
+                        if (agents[i]) {
+                            agents[i].updateFromState(pos, state.velocities[i]);
+                        }
+                    });
+                    document.getElementById('avg-vel').innerText = state.avg_vel.toFixed(2);
+                } catch (e) {
+                    console.error("Failed to fetch simulation step:", e);
+                }
             }
 
             renderer.render(scene, camera);
@@ -360,8 +336,8 @@
             e.target.classList.toggle('bg-cyan-500/20');
         });
 
-        document.getElementById('reset-sim').addEventListener('click', () => {
-            agents.forEach(a => a.reset());
+        document.getElementById('reset-sim').addEventListener('click', async () => {
+            await fetch('/api/reset', { method: 'POST' });
         });
 
         document.getElementById('rho-slider').addEventListener('input', (e) => {
@@ -398,9 +374,14 @@
             document.getElementById('duration-val').innerText = `${CONFIG.duration.toFixed(1)}s`;
         });
 
-        document.getElementById('apply-command').addEventListener('click', () => {
-            agents.forEach(a => {
-                a.commandTimer = CONFIG.duration;
+        document.getElementById('apply-command').addEventListener('click', async () => {
+            await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_vel: [CONFIG.targetVel.x, CONFIG.targetVel.y, CONFIG.targetVel.z],
+                    duration: CONFIG.duration
+                })
             });
         });
 
