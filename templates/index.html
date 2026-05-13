@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <style>
         body {
             margin: 0;
@@ -65,12 +66,16 @@
         </div>
 
         <!-- Controls -->
-        <div class="flex flex-col items-center gap-4 pointer-events-auto">
-            <div class="glass p-4 flex flex-col gap-4">
+        <div class="flex flex-col items-center gap-4 pointer-events-auto w-full max-w-4xl mx-auto">
+            <button id="toggle-panel" class="neo-button px-4 py-1 rounded-full text-xs font-bold text-gray-400 hover:text-white uppercase tracking-widest shadow-md border border-white/10 self-center mb-[-1rem] z-20 bg-[#050505]/80 backdrop-blur-md">
+                ▼ Hide Controls
+            </button>
+            <div id="control-panel" class="glass p-4 flex flex-col gap-4 w-full transition-all duration-300 ease-in-out transform origin-bottom">
                 <!-- Simulation Controls -->
                 <div class="flex gap-4 items-center">
                     <button id="toggle-sim" class="neo-button px-6 py-2 rounded-full font-bold text-sm uppercase">Start
                         Simulation</button>
+                    <button id="toggle-record" class="neo-button px-4 py-2 rounded-full text-xs font-bold text-red-400 uppercase border border-red-500/30 transition-colors">Record CSV: OFF</button>
                     <div class="w-px h-6 bg-white/10"></div>
                     <div class="flex flex-col gap-1">
                         <div class="flex justify-between items-center">
@@ -78,7 +83,24 @@
                             <span id="rho-val" class="text-[10px] font-mono text-cyan-400">0.05 kg/m³</span>
                         </div>
                         <input id="rho-slider" type="range" min="0" max="2" step="0.01" value="0.05"
-                            class="accent-cyan-500">
+                            class="accent-cyan-500 w-20">
+                    </div>
+                    
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">LJ Epsilon (ε)</label>
+                            <span id="epsilon-val" class="text-[10px] font-mono text-cyan-400">10.0</span>
+                        </div>
+                        <input id="epsilon-slider" type="range" min="0" max="50" step="0.5" value="10.0"
+                            class="accent-cyan-500 w-20">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">LJ Sigma (σ)</label>
+                            <span id="sigma-val" class="text-[10px] font-mono text-cyan-400">10.0</span>
+                        </div>
+                        <input id="sigma-slider" type="range" min="0.1" max="20" step="0.1" value="10.0"
+                            class="accent-cyan-500 w-20">
                     </div>
                     <button id="reset-sim"
                         class="neo-button px-4 py-2 rounded-full text-xs opacity-60 hover:opacity-100">Reset</button>
@@ -128,6 +150,39 @@
 
                     <button id="zero-vel" class="neo-button px-3 py-1 rounded text-[10px] uppercase">Halt</button>
                 </div>
+
+                <!-- Milling Controls -->
+                <div class="flex gap-6 items-center border-t border-white/5 pt-4">
+                    <button id="toggle-milling" class="neo-button px-6 py-2 rounded-full font-bold text-sm uppercase">Milling: OFF</button>
+                    <div class="w-px h-6 bg-white/10"></div>
+                    
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">FOV Angle (θ)</label>
+                            <span id="milling-fov-val" class="text-[10px] font-mono text-cyan-400">30.0°</span>
+                        </div>
+                        <input id="milling-fov-slider" type="range" min="5" max="180" step="1" value="30"
+                            class="accent-cyan-500 w-24">
+                    </div>
+                    
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">Speed</label>
+                            <span id="milling-speed-val" class="text-[10px] font-mono text-cyan-400">5.0</span>
+                        </div>
+                        <input id="milling-speed-slider" type="range" min="0.1" max="20" step="0.1" value="5.0"
+                            class="accent-cyan-500 w-24">
+                    </div>
+                    
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[10px] uppercase text-gray-500">Turn Rate</label>
+                            <span id="milling-turn-val" class="text-[10px] font-mono text-cyan-400">5.0</span>
+                        </div>
+                        <input id="milling-turn-slider" type="range" min="0.1" max="20" step="0.1" value="5.0"
+                            class="accent-cyan-500 w-24">
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -139,6 +194,12 @@
             boxSize: 40,
             agentRadius: 0.5,
             rho: 0.05,     // Reduced from 1.225 for better drifting
+            lj_epsilon: 10.0,
+            lj_sigma: 10.0,
+            milling_enabled: false,
+            milling_fov_angle: 30.0,
+            milling_speed: 5.0,
+            milling_turn_rate: 5.0,
             Cd: 0.47,
             A: Math.PI * 0.5 * 0.5,
             mass: 1.0,     // Increased from 0.1 for more momentum
@@ -172,44 +233,75 @@
         directionalLight.position.set(10, 10, 50);
         scene.add(directionalLight);
 
-        // --- Environment ---
-        let boxGeo = new THREE.BoxGeometry(CONFIG.boxSize, CONFIG.boxSize, CONFIG.boxSize);
-        const boxMat = new THREE.MeshPhongMaterial({
-            color: 0x0ea5e9,
-            wireframe: false,
-            transparent: true,
-            opacity: 0.05,
-            side: THREE.BackSide
-        });
-        let box = new THREE.Mesh(boxGeo, boxMat);
-        scene.add(box);
+        // --- Environment (STL Mesh) ---
+        let boundaryMesh = null;
 
-        let boxEdges = new THREE.EdgesGeometry(boxGeo);
-        const lineMat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent: true, opacity: 0.3 });
-        let boxWire = new THREE.LineSegments(boxEdges, lineMat);
-        scene.add(boxWire);
+        function loadMeshBoundary() {
+            return new Promise((resolve) => {
+                const loader = new THREE.OBJLoader();
+                // Add timestamp to prevent browser caching of old STL/OBJ files
+                const meshUrl = '/static/Tesserae_SimpleShell.obj?v=' + Date.now();
+                loader.load(meshUrl, (object) => {
+                    // Extract geometry from the first mesh in the OBJ group
+                    let geometry = null;
+                    object.traverse((child) => {
+                        if (child.isMesh && !geometry) {
+                            geometry = child.geometry;
+                        }
+                    });
 
-        let grid = new THREE.GridHelper(CONFIG.boxSize, 10, 0x0ea5e9, 0x111111);
-        grid.rotation.x = Math.PI / 2; // Lie flat on XY plane
-        grid.position.z = -CONFIG.boxSize / 2;
-        scene.add(grid);
+                    if (!geometry) {
+                        console.warn('OBJ loaded but no mesh found.');
+                        resolve();
+                        return;
+                    }
+
+                    // Center the geometry at origin
+                    geometry.computeVertexNormals();
+                    geometry.computeBoundingBox();
+                    const center = new THREE.Vector3();
+                    geometry.boundingBox.getCenter(center);
+                    geometry.translate(-center.x, -center.y, -center.z);
+
+                    // Scale to match the Python physics engine (box_size = 40)
+                    const box3 = new THREE.Box3().setFromBufferAttribute(geometry.attributes.position);
+                    const size = new THREE.Vector3();
+                    box3.getSize(size);
+                    const maxExtent = Math.max(size.x, size.y, size.z);
+                    const scale = CONFIG.boxSize / maxExtent;
+                    geometry.scale(scale, scale, scale);
+
+                    // Render the exterior surface only (FrontSide = outward-facing faces)
+                    // This matches exactly what the physics engine uses as the collision boundary.
+                    // Semi-transparent so agents floating inside remain visible.
+                    const exteriorMat = new THREE.MeshPhongMaterial({
+                        color: 0x0ea5e9,
+                        emissive: 0x0369a1,
+                        emissiveIntensity: 0.2,
+                        transparent: true,
+                        opacity: 0.18,
+                        side: THREE.FrontSide,
+                        depthWrite: false
+                    });
+                    boundaryMesh = new THREE.Mesh(geometry, exteriorMat);
+                    scene.add(boundaryMesh);
+
+                    // Adjust camera
+                    camera.position.set(CONFIG.boxSize, CONFIG.boxSize, CONFIG.boxSize);
+                    controls.target.set(0, 0, 0);
+                    controls.update();
+
+                    console.log(`OBJ Mesh Loaded (Smooth Rendering Active) | Scale: ${scale.toFixed(4)}`);
+                    resolve();
+                }, undefined, (err) => {
+                    console.warn('Mesh load failed, no boundary displayed.', err);
+                    resolve();
+                });
+            });
+        }
 
         function updateEnvironment(size) {
-            // Update visual box
-            box.geometry.dispose();
-            box.geometry = new THREE.BoxGeometry(size, size, size);
-            
-            boxWire.geometry.dispose();
-            boxWire.geometry = new THREE.EdgesGeometry(box.geometry);
-            
-            // Update grid
-            scene.remove(grid);
-            grid = new THREE.GridHelper(size, 10, 0x0ea5e9, 0x111111);
-            grid.rotation.x = Math.PI / 2;
-            grid.position.z = -size / 2;
-            scene.add(grid);
-
-            // Re-adjust camera if needed? (Optional)
+            // Camera adjustment only when server sends new box size
             camera.position.set(size, size, size);
             controls.target.set(0, 0, 0);
             controls.update();
@@ -220,6 +312,7 @@
             constructor(id) {
                 this.id = id;
                 this.pos = new THREE.Vector3(0, 0, 0);
+                this.targetPos = new THREE.Vector3(0, 0, 0); // For smoothing
                 this.vel = new THREE.Vector3(0, 0, 0);
 
                 // Color agents randomly for identification
@@ -234,15 +327,28 @@
                 scene.add(this.mesh);
             }
 
-            updateFromState(posArray, velArray) {
-                this.pos.set(posArray[0], posArray[1], posArray[2]);
+            updateFromState(posArray, velArray, immediate = false) {
+                this.targetPos.set(posArray[0], posArray[1], posArray[2]);
                 this.vel.set(velArray[0], velArray[1], velArray[2]);
+                if (immediate) {
+                    this.pos.copy(this.targetPos);
+                    this.mesh.position.copy(this.pos);
+                }
+            }
+
+            interpolate(factor) {
+                // Smoothly move current position towards target position
+                this.pos.lerp(this.targetPos, factor);
                 this.mesh.position.copy(this.pos);
             }
         }
 
         async function initSimulation() {
             console.log("Initializing simulation...");
+
+            // Load Mesh boundary first so it's ready before agents appear
+            await loadMeshBoundary();
+
             try {
                 const response = await fetch('/api/config');
                 const serverConfig = await response.json();
@@ -250,12 +356,36 @@
 
                 // Update configuration from server
                 if (serverConfig.num_agents) CONFIG.numAgents = serverConfig.num_agents;
-                // Update other parameters if they exist in the backend config
                 if (serverConfig.box_size) CONFIG.boxSize = serverConfig.box_size;
-                
-                // Re-initialize box if size changed
-                if (serverConfig.box_size) {
-                    updateEnvironment(CONFIG.boxSize);
+                if (serverConfig.lj_epsilon !== undefined) {
+                    CONFIG.lj_epsilon = serverConfig.lj_epsilon;
+                    document.getElementById('epsilon-slider').value = CONFIG.lj_epsilon;
+                    document.getElementById('epsilon-val').innerText = CONFIG.lj_epsilon.toFixed(1);
+                }
+                if (serverConfig.lj_sigma !== undefined) {
+                    CONFIG.lj_sigma = serverConfig.lj_sigma;
+                    document.getElementById('sigma-slider').value = CONFIG.lj_sigma;
+                    document.getElementById('sigma-val').innerText = CONFIG.lj_sigma.toFixed(1);
+                }
+                if (serverConfig.milling_enabled !== undefined) {
+                    CONFIG.milling_enabled = serverConfig.milling_enabled;
+                    document.getElementById('toggle-milling').innerText = CONFIG.milling_enabled ? 'Milling: ON' : 'Milling: OFF';
+                    if (CONFIG.milling_enabled) document.getElementById('toggle-milling').classList.add('bg-cyan-500/20');
+                }
+                if (serverConfig.milling_fov_angle !== undefined) {
+                    CONFIG.milling_fov_angle = serverConfig.milling_fov_angle;
+                    document.getElementById('milling-fov-slider').value = CONFIG.milling_fov_angle;
+                    document.getElementById('milling-fov-val').innerText = CONFIG.milling_fov_angle.toFixed(1) + '°';
+                }
+                if (serverConfig.milling_speed !== undefined) {
+                    CONFIG.milling_speed = serverConfig.milling_speed;
+                    document.getElementById('milling-speed-slider').value = CONFIG.milling_speed;
+                    document.getElementById('milling-speed-val').innerText = CONFIG.milling_speed.toFixed(1);
+                }
+                if (serverConfig.milling_turn_rate !== undefined) {
+                    CONFIG.milling_turn_rate = serverConfig.milling_turn_rate;
+                    document.getElementById('milling-turn-slider').value = CONFIG.milling_turn_rate;
+                    document.getElementById('milling-turn-val').innerText = CONFIG.milling_turn_rate.toFixed(1);
                 }
 
             } catch (error) {
@@ -284,7 +414,7 @@
                 });
                 const state = await response.json();
                 state.positions.forEach((pos, i) => {
-                    if (agents[i]) agents[i].updateFromState(pos, state.velocities[i]);
+                    if (agents[i]) agents[i].updateFromState(pos, state.velocities[i], true);
                 });
             } catch (e) {
                 console.error("Failed to fetch initial state:", e);
@@ -296,33 +426,55 @@
         // --- Main Loop ---
         let running = false;
         let lastTime = performance.now();
+        let isFetching = false;
 
-        async function animate() {
-            requestAnimationFrame(animate);
-            const now = performance.now();
-            const dt = Math.min((now - lastTime) / 1000, 0.1);
-            lastTime = now;
+        async function fetchState() {
+            if (!running || isFetching) return;
+            isFetching = true;
 
-            if (running) {
-                try {
-                    const response = await fetch('/api/step', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dt: dt, rho: CONFIG.rho })
-                    });
-                    const state = await response.json();
-                    
-                    // Update agents from server state
-                    state.positions.forEach((pos, i) => {
-                        if (agents[i]) {
-                            agents[i].updateFromState(pos, state.velocities[i]);
-                        }
-                    });
-                    document.getElementById('avg-vel').innerText = state.avg_vel.toFixed(2);
-                } catch (e) {
-                    console.error("Failed to fetch simulation step:", e);
-                }
+            try {
+                const payload = { 
+                    dt: 0.016, 
+                    rho: CONFIG.rho, 
+                    lj_epsilon: CONFIG.lj_epsilon, 
+                    lj_sigma: CONFIG.lj_sigma,
+                    milling_enabled: CONFIG.milling_enabled,
+                    milling_fov_angle: CONFIG.milling_fov_angle,
+                    milling_speed: CONFIG.milling_speed,
+                    milling_turn_rate: CONFIG.milling_turn_rate
+                };
+                const response = await fetch('/api/step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const state = await response.json();
+                
+                state.positions.forEach((pos, i) => {
+                    if (agents[i]) {
+                        agents[i].updateFromState(pos, state.velocities[i]);
+                    }
+                });
+                document.getElementById('avg-vel').innerText = state.avg_vel.toFixed(2);
+            } catch (e) {
+                console.error("Failed to fetch simulation step:", e);
+            } finally {
+                isFetching = false;
             }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // 1. Fetch new state if not already fetching
+            if (running) {
+                fetchState();
+            }
+
+            // 2. Interpolate all agents (smooth 60fps motion)
+            // A factor of 0.1 - 0.2 provides a good balance of smoothness vs lag
+            const lerpFactor = 0.15; 
+            agents.forEach(agent => agent.interpolate(lerpFactor));
 
             renderer.render(scene, camera);
         }
@@ -330,10 +482,38 @@
         initSimulation();
 
         // --- Controls UI ---
-        document.getElementById('toggle-sim').addEventListener('click', (e) => {
+        document.getElementById('toggle-sim').addEventListener('click', async (e) => {
             running = !running;
             e.target.innerText = running ? 'Stop Simulation' : 'Start Simulation';
             e.target.classList.toggle('bg-cyan-500/20');
+        });
+
+        let isRecording = false;
+        document.getElementById('toggle-record').addEventListener('click', async (e) => {
+            isRecording = !isRecording;
+            
+            if (isRecording) {
+                e.target.innerText = 'Recording CSV...';
+                e.target.classList.add('bg-red-500/20');
+                e.target.classList.remove('text-red-400');
+                e.target.classList.add('text-red-300');
+            } else {
+                e.target.innerText = 'Record CSV: OFF';
+                e.target.classList.remove('bg-red-500/20');
+                e.target.classList.add('text-red-400');
+                e.target.classList.remove('text-red-300');
+            }
+            
+            // Toggle CSV Recording on backend
+            try {
+                await fetch('/api/toggle_recording', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ record: isRecording })
+                });
+            } catch (err) {
+                console.error("Failed to toggle recording", err);
+            }
         });
 
         document.getElementById('reset-sim').addEventListener('click', async () => {
@@ -343,6 +523,38 @@
         document.getElementById('rho-slider').addEventListener('input', (e) => {
             CONFIG.rho = parseFloat(e.target.value);
             document.getElementById('rho-val').innerText = `${CONFIG.rho.toFixed(2)} kg/m³`;
+        });
+
+        document.getElementById('epsilon-slider').addEventListener('input', (e) => {
+            CONFIG.lj_epsilon = parseFloat(e.target.value);
+            document.getElementById('epsilon-val').innerText = CONFIG.lj_epsilon.toFixed(1);
+        });
+
+        document.getElementById('sigma-slider').addEventListener('input', (e) => {
+            CONFIG.lj_sigma = parseFloat(e.target.value);
+            document.getElementById('sigma-val').innerText = CONFIG.lj_sigma.toFixed(1);
+        });
+
+        // Milling UI Events
+        document.getElementById('toggle-milling').addEventListener('click', (e) => {
+            CONFIG.milling_enabled = !CONFIG.milling_enabled;
+            e.target.innerText = CONFIG.milling_enabled ? 'Milling: ON' : 'Milling: OFF';
+            e.target.classList.toggle('bg-cyan-500/20');
+        });
+
+        document.getElementById('milling-fov-slider').addEventListener('input', (e) => {
+            CONFIG.milling_fov_angle = parseFloat(e.target.value);
+            document.getElementById('milling-fov-val').innerText = CONFIG.milling_fov_angle.toFixed(1) + '°';
+        });
+
+        document.getElementById('milling-speed-slider').addEventListener('input', (e) => {
+            CONFIG.milling_speed = parseFloat(e.target.value);
+            document.getElementById('milling-speed-val').innerText = CONFIG.milling_speed.toFixed(1);
+        });
+
+        document.getElementById('milling-turn-slider').addEventListener('input', (e) => {
+            CONFIG.milling_turn_rate = parseFloat(e.target.value);
+            document.getElementById('milling-turn-val').innerText = CONFIG.milling_turn_rate.toFixed(1);
         });
 
         document.getElementById('vx-slider').addEventListener('input', (e) => {
@@ -383,6 +595,29 @@
                     duration: CONFIG.duration
                 })
             });
+        });
+
+        // --- Panel Toggle UI ---
+        const panelToggleBtn = document.getElementById('toggle-panel');
+        const controlPanel = document.getElementById('control-panel');
+        let panelVisible = true;
+        
+        panelToggleBtn.addEventListener('click', () => {
+            panelVisible = !panelVisible;
+            if (panelVisible) {
+                controlPanel.style.opacity = '1';
+                controlPanel.style.transform = 'translateY(0) scaleY(1)';
+                controlPanel.style.pointerEvents = 'auto';
+                controlPanel.style.height = 'auto';
+                panelToggleBtn.innerText = '▼ Hide Controls';
+            } else {
+                controlPanel.style.opacity = '0';
+                controlPanel.style.transform = 'translateY(20px) scaleY(0.9)';
+                controlPanel.style.pointerEvents = 'none';
+                controlPanel.style.height = '0px';
+                controlPanel.style.overflow = 'hidden';
+                panelToggleBtn.innerText = '▲ Show Controls';
+            }
         });
 
         window.addEventListener('resize', () => {
